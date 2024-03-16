@@ -1,0 +1,177 @@
+# Air Quality Model Training
+
+**Student:** Jack Maerschand
+
+**Task:**
+
+1.  Explore the data set.
+
+2.  Plot significant aspects of the data.
+
+3.  Develop different models, and evaluating which is most suitable.
+
+## My Work
+
+### Setting up Environment
+
+```{r, message=FALSE}
+if (rstudioapi::isAvailable())  # doesn't work on console 
+  setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+```
+
+```{r, message=FALSE}
+library(data.table)
+library(plotly)
+library(caret)
+```
+
+```{r, message=FALSE}
+# Creating a data table object extending from the data frame class 
+AQTrain <- fread("airquality.training.csv")
+AQTest <- fread("airquality.test.csv")
+```
+
+### Exploring Data
+
+```{r}
+# Checking structure of the data.frame
+str(AQTrain) # Initial 122 obs 
+str(AQTest)  # Initial 31 obs 
+
+# Checking for NA Values
+colSums(is.na(AQTrain))  # 34 total null values 
+colSums(is.na(AQTest))   # 10 total null values    
+
+# Removing NA Values
+AQTrain <- AQTrain[complete.cases(AQTrain), ] # Removed 32 obs ==> 26% were NA
+AQTest <- AQTest[complete.cases(AQTest), ]    # Removed 10 obs ==> 31% were NA
+# After removing the NA values the following can be said... 111 total obs
+# Train set contains 90 obs     81% of the data 
+# Test set contains 21 obs      19% of the data 
+# Therefore, around a 80-20 Train-Test Split 
+```
+
+### Plotly Scatter Plot and Box Plot
+
+e.g., scatter plots Ozone vs. rest, box plots of all variables, evolution over time, ...
+
+**The following plot are the changes in Ozone, Solar.R, Wind and Temp over time.**
+
+Plot shows evolution over time of variables. Something that can be said is that temperatures increase following the month of May and decrease during the month of October, suggesting the data originates from the norther hemisphere where temperatures are generally warmer during the summer months.
+
+```{r}
+# I will make a new col representing the date, I chose 2024 as I am unsure
+AQTrain$Date <- as.Date(paste('2024', AQTrain$Month, AQTrain$Day, sep='-'))
+
+# Example from: https://plotly.com/r/line-and-scatter/
+fig <- plot_ly(AQTrain, x = ~Date, y = ~Ozone, 
+               name = 'Ozone', type = 'scatter', mode = 'lines+markers')
+fig <- fig %>% add_trace(y = ~Solar.R, name = 'Solar.R', 
+                         type = 'scatter', mode = 'lines+markers')
+fig <- fig %>% add_trace(y = ~Wind, name = 'Wind', 
+                         type = 'scatter', mode = 'lines+markers')
+fig <- fig %>% add_trace(y = ~Temp, name = 'Temp', 
+                         type = 'scatter', mode = 'lines+markers')
+fig <- fig %>% layout(yaxis = list(title='Values'))
+
+fig
+```
+
+**The following is a scatter plot of Ozone vs. Solar.R, Wind and Temp**
+
+What is immediately evident is that Solar.Rs correlation to Ozone is less significant which is evident from the spread in data. A more detailed description is given in the following plot regarding correlation.
+
+```{r}
+fig <- plot_ly(data = AQTrain, x = ~Ozone, y = ~Solar.R, type = 'scatter', mode = 'markers', name = 'Ozone vs Solar.R') %>%
+       add_trace(y = ~Wind, name = 'Ozone vs Wind') %>%
+       add_trace(y = ~Temp, name = 'Ozone vs Temp') %>%
+      layout(yaxis = list(title='Values'))
+
+fig
+```
+
+**The following are pair correlation plots of Ozone, Solar.R, Wind and Temp**
+
+Looking at the first row and col we can see Ozone vs Solar.R, Wind and Temp. Both Solar.R and Temp have positive correlation. However, Temp has a "strong" positive correlation at 0.722. On the other hand wind is negatively correlated, indicating that as Wind decreases Ozone values increase.
+
+```{r, message=FALSE}
+library(GGally)  # For ggpairs()
+
+Cor_Fig <- ggpairs(AQTrain, columns = c(1,2,3,4))
+Cor_Fig <- ggpairs(AQTrain, columns = c('Ozone', 'Solar.R', 'Wind', 'Temp'),
+                   columnLabels = c('Ozone', 'Solar.R', 'Wind', 'Temp'), progress = FALSE)
+# progress = FALSE, is used to remove redundant information 
+
+Cor_Fig 
+```
+
+**The following is a 3D scatter plot of different of Ozone with regard to Solar.R, Wind and Temp**
+
+Personally, I cannot interpret this too well and prefer other plots which examine certain aspects in a more comprehensible format.
+
+From what I can interpret as Wind decreases and Temp and Solar.R increases the value of Ozone increases. This is justified by the correlation plot above as the correlation between Wind and Ozone is negative, whereas the correlation between Solar.R and Temp is positive.
+
+```{r}
+plot_ly(data = AQTrain, x = ~Solar.R, y = ~Wind, z = ~Temp, color = ~Ozone, type = 'scatter3d', mode = 'markers')
+```
+
+**The following are box plots representing Ozone, Solar.R, Wind and Temp**
+
+Visually it is apparent there is a negative skew as the median is closer to the top of the box. The same can be said for Temp. On the other hand, Ozone is positively skewed with the median being closer to the bottom. Additionally it can be said that Solar.R has a wider distribution than the other boxplots.
+
+```{r}
+boxplot <- plot_ly(y = AQTrain$Ozone, type = "box", name = 'Ozone')
+boxplot <- boxplot %>% add_trace(y = AQTrain$Solar.R, name = 'Solar.R')
+boxplot <- boxplot %>% add_trace(y = AQTrain$Wind, name = 'Wind')
+boxplot <- boxplot %>% add_trace(y = AQTrain$Temp, name = 'Temp')
+
+boxplot
+```
+
+### Model Development
+
+**Trace 0: Training Data** and **Trace 1: Test Data**
+
+Given the results of different polynomial degrees I would suggest using a degree of 2 as it achieves a good trade off between model accuracy and being general. However, observing d=3 RMSE value indicates that it is a valid possible candidate, this depends on the preferred complexity of the model as increasing the degree increases the complexity. That being said, *I would personally opt for a degree of 2* as the model being more general makes it easier to work (Occam's razor).
+
+When plotting both the RMSE (and MAE) values it becomes evident that over fitting is occurring. When d=5, the model is the most accurate with regards to the training data(trace 0). However, as the model in this case is over fit resulting in the test data(trace 1) having a high RMSE (and MAE) value which indicates that the model results in a larger difference between the predicted and actual values.
+
+```{r}
+poly_regr <- list()
+MAEs_train <- vector()
+MAEs_test <- vector()
+# Root Mean Squared Error
+RMSEs_train <- vector()
+RMSEs_test <- vector()
+
+for (d in 1:5) {
+  poly_regr[[d]] <- lm(Ozone ~ poly(Solar.R, Wind, Temp, degree = d), data = AQTrain)
+  
+  train_predictions <- poly_regr[[d]]$fitted.values
+  train_actuals <- AQTrain[,Ozone]
+  MAEs_train[d] <- MAE(train_predictions, train_actuals)
+  RMSEs_train[d] <- sqrt(mean((train_actuals - train_predictions)^2)) # or import metrics 
+  
+  
+  test_predictions <- predict(poly_regr[[d]], AQTest[, !c("Ozone","Month","Day")])
+  test_actuals <- AQTest[, Ozone]
+  MAEs_test[d] <- MAE(test_predictions, test_actuals)
+  RMSEs_test[d] <- sqrt(mean((test_actuals - test_predictions)^2))
+}
+```
+
+**RMSE Curve**
+
+```{r}
+plot_ly(x = 1:length(RMSEs_train), y = RMSEs_train, type = "scatter", mode = "line") %>%
+  add_lines(x = 1:length(RMSEs_test), y = RMSEs_test) %>% 
+  layout(title = "RMSE")
+```
+
+**MAE Curve**
+
+```{r}
+plot_ly(x = 1:length(MAEs_train), y = MAEs_train, type = "scatter", mode = "line") %>%
+  add_lines(x = 1:length(MAEs_test), y = MAEs_test) %>%
+  layout(title = "MAE")
+```
